@@ -3,8 +3,10 @@ package handler
 import (
 	"clean-arc/model"
 	"clean-arc/service"
-	"encoding/json"
 	"net/http"
+	"slices"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
@@ -12,7 +14,8 @@ type Handler struct {
 }
 
 type IHandler interface {
-	HandleCalculator(w http.ResponseWriter, r *http.Request)
+	HandleCalculator(c *gin.Context)
+	GetHistoryCalculator(c *gin.Context)
 }
 
 // init factory
@@ -22,38 +25,47 @@ func NewHandler(svc service.IService) IHandler {
 	}
 }
 
+func (h *Handler) GetHistoryCalculator(c *gin.Context) {
+	// logic khusus buat auth
+	// get header username header password
+	data := h.Service.GetHistoryCalculator()
+	c.JSON(http.StatusOK, data)
+}
+
 // controller / handler
-func (h *Handler) HandleCalculator(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleCalculator(c *gin.Context) {
 	// cuma berfokus ke kebutuhan external (request dan response)
 	// logic services
 	// get request body
+	var reqBody model.RequestCalculator
 
-	switch r.Method {
-	case "POST":
-		var reqBody model.RequestCalculator
+	// binding request body
+	err := c.ShouldBindJSON(&reqBody)
 
-		// decode request body
-		err := json.NewDecoder(r.Body).Decode(&reqBody)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+	// logic khusus buat auth
 
-		res, err := h.Service.Calculator(reqBody.A, reqBody.B, reqBody.Operator)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		// response json response
-		var resData = model.ResponseCalculator{
-			Result: res,
-		}
-
-		w.WriteHeader(http.StatusOK)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resData)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// handle errror struct
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrResponse(err.Error()))
+		return
 	}
+
+	allowOperator := slices.Contains([]string{"+", "-", "*", "/", "%"}, reqBody.Operator)
+	if !allowOperator {
+		c.JSON(http.StatusBadRequest, model.ErrResponse("invalid operator, only allow : +, -, *, /, %"))
+		return
+	}
+
+	res, err := h.Service.Calculator(reqBody.A, reqBody.B, reqBody.Operator)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrResponse(err.Error()))
+		return
+	}
+
+	// response json response
+	var resData = model.ResponseCalculator{
+		Result: res,
+	}
+
+	c.JSON(http.StatusOK, resData)
 }
